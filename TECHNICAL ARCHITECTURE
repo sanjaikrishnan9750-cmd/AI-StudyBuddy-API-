@@ -1,0 +1,797 @@
+AI StudyBuddy – Technical Architecture
+
+The AI StudyBuddy system is implemented using a modular RESTful backend architecture. The backend is developed using Node.js and Express.js, while MongoDB with Mongoose is used for persistent data storage. JWT authentication is implemented to secure private APIs. The Google Gemini API is integrated through a separate AI service layer to generate learning resources such as summaries, quizzes, flashcards, and personalized study plans.
+
+The system follows a layered architecture where each module has a specific responsibility. This improves maintainability, scalability, security, and debugging.
+
+Architecture Flow
+React.js Client
+      |
+      | HTTP / REST API
+      v
++----------------------+
+|    Express Server    |
++----------------------+
+      |
+      v
++----------------------+
+| Authentication       |
+| JWT Middleware       |
++----------------------+
+      |
+      v
++----------------------+
+| Route Handlers       |
++----------------------+
+      |
+      +-------------------+
+      |                   |
+      v                   v
++-------------+    +-------------+
+| Business    |    | AI Service  |
+| Logic       |    | Gemini API  |
++-------------+    +-------------+
+      |
+      v
++----------------------+
+| MongoDB + Mongoose   |
++----------------------+
+1. Project Folder Structure
+AI-StudyBuddy/
+│
+├── server.js
+├── package.json
+├── .env
+│
+├── config/
+│   └── db.js
+│
+├── models/
+│   ├── User.js
+│   └── StudyMaterial.js
+│
+├── middleware/
+│   └── authMiddleware.js
+│
+├── routes/
+│   ├── authRoutes.js
+│   ├── studyRoutes.js
+│   └── aiRoutes.js
+│
+├── controllers/
+│   ├── authController.js
+│   ├── studyController.js
+│   └── aiController.js
+│
+└── services/
+    └── geminiService.js
+2. Required Packages
+npm init -y
+
+npm install express mongoose dotenv bcryptjs jsonwebtoken cors multer @google/generative-ai
+3. Environment Configuration
+.env
+PORT=5000
+
+MONGO_URI=mongodb://127.0.0.1:27017/ai-studybuddy
+
+JWT_SECRET=your_secret_key
+
+GEMINI_API_KEY=your_gemini_api_key
+
+Note: API keys should not be hard-coded in the source code. They should be stored in environment variables.
+
+4. Database Connection
+config/db.js
+const mongoose = require("mongoose");
+
+const connectDB = async () => {
+    try {
+        await mongoose.connect(process.env.MONGO_URI);
+        console.log("MongoDB connected successfully");
+    } catch (error) {
+        console.error("MongoDB connection failed:", error.message);
+        process.exit(1);
+    }
+};
+
+module.exports = connectDB;
+5. User Model
+models/User.js
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema(
+    {
+        name: {
+            type: String,
+            required: true
+        },
+
+        email: {
+            type: String,
+            required: true,
+            unique: true
+        },
+
+        password: {
+            type: String,
+            required: true
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model("User", userSchema);
+6. Study Material Model
+models/StudyMaterial.js
+const mongoose = require("mongoose");
+
+const studyMaterialSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+        },
+
+        title: {
+            type: String,
+            required: true
+        },
+
+        content: {
+            type: String,
+            required: true
+        },
+
+        summary: {
+            type: String,
+            default: ""
+        },
+
+        quiz: {
+            type: Array,
+            default: []
+        },
+
+        flashcards: {
+            type: Array,
+            default: []
+        },
+
+        studyPlan: {
+            type: String,
+            default: ""
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "StudyMaterial",
+    studyMaterialSchema
+);
+7. JWT Authentication Middleware
+middleware/authMiddleware.js
+const jwt = require("jsonwebtoken");
+
+const protect = (req, res, next) => {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({
+                message: "Authentication required"
+            });
+        }
+
+        const token = authHeader.split(" ")[1];
+
+        const decoded = jwt.verify(
+            token,
+            process.env.JWT_SECRET
+        );
+
+        req.user = decoded;
+
+        next();
+
+    } catch (error) {
+        return res.status(401).json({
+            message: "Invalid or expired token"
+        });
+    }
+};
+
+module.exports = protect;
+8. Authentication Controller
+controllers/authController.js
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+
+const register = async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+
+        const existingUser = await User.findOne({ email });
+
+        if (existingUser) {
+            return res.status(400).json({
+                message: "User already exists"
+            });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        const user = await User.create({
+            name,
+            email,
+            password: hashedPassword
+        });
+
+        res.status(201).json({
+            message: "Registration successful",
+            userId: user._id
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Registration failed"
+        });
+    }
+};
+
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(401).json({
+                message: "Invalid email or password"
+            });
+        }
+
+        const isMatch = await bcrypt.compare(
+            password,
+            user.password
+        );
+
+        if (!isMatch) {
+            return res.status(401).json({
+                message: "Invalid email or password"
+            });
+        }
+
+        const token = jwt.sign(
+            {
+                userId: user._id,
+                email: user.email
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "1d"
+            }
+        );
+
+        res.json({
+            message: "Login successful",
+            token
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Login failed"
+        });
+    }
+};
+
+module.exports = {
+    register,
+    login
+};
+9. Authentication Routes
+routes/authRoutes.js
+const express = require("express");
+
+const {
+    register,
+    login
+} = require("../controllers/authController");
+
+const router = express.Router();
+
+router.post("/register", register);
+router.post("/login", login);
+
+module.exports = router;
+10. Gemini AI Service
+services/geminiService.js
+const {
+    GoogleGenerativeAI
+} = require("@google/generative-ai");
+
+const genAI = new GoogleGenerativeAI(
+    process.env.GEMINI_API_KEY
+);
+
+const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash"
+});
+
+const generateAIContent = async (prompt) => {
+    const result = await model.generateContent(prompt);
+
+    const response = await result.response;
+
+    return response.text();
+};
+
+const generateSummary = async (content) => {
+
+    const prompt = `
+    Summarize the following study material
+    in simple and clear language.
+
+    Study Material:
+    ${content}
+    `;
+
+    return await generateAIContent(prompt);
+};
+
+const generateQuiz = async (content) => {
+
+    const prompt = `
+    Create 5 multiple-choice questions
+    from the following study material.
+
+    Provide:
+    Question
+    Four options
+    Correct answer
+
+    Study Material:
+    ${content}
+    `;
+
+    return await generateAIContent(prompt);
+};
+
+const generateFlashcards = async (content) => {
+
+    const prompt = `
+    Create 5 study flashcards from the
+    following material.
+
+    Format:
+    Question:
+    Answer:
+
+    Study Material:
+    ${content}
+    `;
+
+    return await generateAIContent(prompt);
+};
+
+const generateStudyPlan = async (content) => {
+
+    const prompt = `
+    Create a simple personalized study plan
+    based on the following study material.
+
+    Include topics and suggested study sessions.
+
+    Study Material:
+    ${content}
+    `;
+
+    return await generateAIContent(prompt);
+};
+
+module.exports = {
+    generateSummary,
+    generateQuiz,
+    generateFlashcards,
+    generateStudyPlan
+};
+
+Note: Gemini model names and SDK usage can change over time, so use the currently supported Gemini model/API format for the API key and SDK version you install.
+
+11. AI Controller
+controllers/aiController.js
+const StudyMaterial = require("../models/StudyMaterial");
+
+const {
+    generateSummary,
+    generateQuiz,
+    generateFlashcards,
+    generateStudyPlan
+} = require("../services/geminiService");
+
+const getSummary = async (req, res) => {
+    try {
+
+        const material = await StudyMaterial.findOne({
+            _id: req.params.id,
+            userId: req.user.userId
+        });
+
+        if (!material) {
+            return res.status(404).json({
+                message: "Study material not found"
+            });
+        }
+
+        const summary = await generateSummary(
+            material.content
+        );
+
+        material.summary = summary;
+
+        await material.save();
+
+        res.json({
+            summary
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to generate summary"
+        });
+    }
+};
+
+const getQuiz = async (req, res) => {
+    try {
+
+        const material = await StudyMaterial.findOne({
+            _id: req.params.id,
+            userId: req.user.userId
+        });
+
+        if (!material) {
+            return res.status(404).json({
+                message: "Study material not found"
+            });
+        }
+
+        const quiz = await generateQuiz(
+            material.content
+        );
+
+        res.json({
+            quiz
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to generate quiz"
+        });
+    }
+};
+
+const getFlashcards = async (req, res) => {
+    try {
+
+        const material = await StudyMaterial.findOne({
+            _id: req.params.id,
+            userId: req.user.userId
+        });
+
+        if (!material) {
+            return res.status(404).json({
+                message: "Study material not found"
+            });
+        }
+
+        const flashcards = await generateFlashcards(
+            material.content
+        );
+
+        res.json({
+            flashcards
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to generate flashcards"
+        });
+    }
+};
+
+const getStudyPlan = async (req, res) => {
+    try {
+
+        const material = await StudyMaterial.findOne({
+            _id: req.params.id,
+            userId: req.user.userId
+        });
+
+        if (!material) {
+            return res.status(404).json({
+                message: "Study material not found"
+            });
+        }
+
+        const studyPlan = await generateStudyPlan(
+            material.content
+        );
+
+        res.json({
+            studyPlan
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to generate study plan"
+        });
+    }
+};
+
+module.exports = {
+    getSummary,
+    getQuiz,
+    getFlashcards,
+    getStudyPlan
+};
+12. AI Routes
+routes/aiRoutes.js
+const express = require("express");
+
+const protect = require("../middleware/authMiddleware");
+
+const {
+    getSummary,
+    getQuiz,
+    getFlashcards,
+    getStudyPlan
+} = require("../controllers/aiController");
+
+const router = express.Router();
+
+router.get(
+    "/summary/:id",
+    protect,
+    getSummary
+);
+
+router.get(
+    "/quiz/:id",
+    protect,
+    getQuiz
+);
+
+router.get(
+    "/flashcards/:id",
+    protect,
+    getFlashcards
+);
+
+router.get(
+    "/study-plan/:id",
+    protect,
+    getStudyPlan
+);
+
+module.exports = router;
+13. Study Material Controller
+controllers/studyController.js
+const StudyMaterial = require("../models/StudyMaterial");
+
+const createMaterial = async (req, res) => {
+    try {
+
+        const {
+            title,
+            content
+        } = req.body;
+
+        const material = await StudyMaterial.create({
+            userId: req.user.userId,
+            title,
+            content
+        });
+
+        res.status(201).json({
+            message: "Study material created",
+            material
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to save study material"
+        });
+    }
+};
+
+const getMaterials = async (req, res) => {
+    try {
+
+        const materials =
+            await StudyMaterial.find({
+                userId: req.user.userId
+            });
+
+        res.json(materials);
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to fetch study materials"
+        });
+    }
+};
+
+module.exports = {
+    createMaterial,
+    getMaterials
+};
+14. Study Routes
+routes/studyRoutes.js
+const express = require("express");
+
+const protect = require("../middleware/authMiddleware");
+
+const {
+    createMaterial,
+    getMaterials
+} = require("../controllers/studyController");
+
+const router = express.Router();
+
+router.post(
+    "/",
+    protect,
+    createMaterial
+);
+
+router.get(
+    "/",
+    protect,
+    getMaterials
+);
+
+module.exports = router;
+15. Main Express Server
+server.js
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+
+const connectDB = require("./config/db");
+
+dotenv.config();
+
+connectDB();
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.get("/", (req, res) => {
+    res.json({
+        message: "AI StudyBuddy API is running"
+    });
+});
+
+app.use(
+    "/api/auth",
+    require("./routes/authRoutes")
+);
+
+app.use(
+    "/api/study",
+    require("./routes/studyRoutes")
+);
+
+app.use(
+    "/api/ai",
+    require("./routes/aiRoutes")
+);
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+    console.log(
+        `Server running on port ${PORT}`
+    );
+});
+16. API Endpoints
+Method	Endpoint	Purpose	Authentication
+POST	/api/auth/register	Register user	No
+POST	/api/auth/login	Login user	No
+POST	/api/study	Add study material	JWT
+GET	/api/study	Get user's materials	JWT
+GET	/api/ai/summary/:id	Generate summary	JWT
+GET	/api/ai/quiz/:id	Generate quiz	JWT
+GET	/api/ai/flashcards/:id	Generate flashcards	JWT
+GET	/api/ai/study-plan/:id	Generate study plan	JWT
+17. Example Request
+Register
+POST /api/auth/register
+Content-Type: application/json
+{
+    "name": "Student",
+    "email": "student@gmail.com",
+    "password": "123456"
+}
+Login
+POST /api/auth/login
+Content-Type: application/json
+{
+    "email": "student@gmail.com",
+    "password": "123456"
+}
+
+Response:
+
+{
+    "message": "Login successful",
+    "token": "JWT_TOKEN"
+}
+
+The frontend stores the JWT and sends it with protected requests:
+
+Authorization: Bearer JWT_TOKEN
+18. Technical Architecture Description for Report
+
+You can directly paste this into your project documentation:
+
+Technical Architecture
+
+The AI StudyBuddy backend uses a modular and layered RESTful architecture. The React.js client communicates with the Express.js server through HTTP-based REST APIs. The Express server manages incoming requests, routing, middleware execution, authentication, and response generation.
+
+JWT authentication is implemented as middleware to protect private resources. After successful login, the server generates a JSON Web Token that is sent with subsequent authenticated requests. The middleware validates the token before allowing access to protected study and AI services.
+
+The application uses separate route handlers and controllers for authentication, study materials, and AI-powered operations. This separation ensures that each module performs a specific function and improves code maintainability.
+
+MongoDB is used as the primary database, while Mongoose provides schema definition and database interaction. User details, study materials, summaries, quizzes, flashcards, and study plans can be stored in MongoDB.
+
+The AI Service Layer acts as an intermediary between the application and the Google Gemini API. It receives study content from the backend, constructs appropriate prompts, sends them to the Gemini API, and returns the generated learning resources to the controller. This design prevents AI-related logic from being tightly coupled with the API routes.
+
+Overall, the architecture provides authentication, modularity, scalability, maintainability, and secure access to AI-powered learning features.
+
+19. Frontend → Backend → AI Flow
+Student
+   |
+   v
+React.js Frontend
+   |
+   | POST /api/auth/login
+   v
+Express.js Server
+   |
+   v
+JWT Authentication
+   |
+   v
+Protected AI Route
+   |
+   v
+AI Controller
+   |
+   v
+Gemini AI Service
+   |
+   v
+Google Gemini API
+   |
+   v
+Generated Learning Content
+   |
+   v
+MongoDB
+   |
+   v
+JSON Response
+   |
+   v
+React.js UI
