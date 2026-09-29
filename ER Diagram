@@ -1,0 +1,461 @@
+AI StudyBuddy – ER Diagram
+
+The AI StudyBuddy system uses MongoDB collections to manage users, study materials, and AI-generated learning resources. Each learning resource is associated with a particular user and study material using MongoDB ObjectId references.
+
+ER Relationship
+                    ┌──────────────────────┐
+                    │        USER          │
+                    ├──────────────────────┤
+                    │ _id (PK)             │
+                    │ name                 │
+                    │ email                │
+                    │ password             │
+                    │ role                 │
+                    │ createdAt            │
+                    └──────────┬───────────┘
+                               │
+                               │ 1 : N
+                               ▼
+              ┌────────────────────────────┐
+              │     STUDY MATERIAL         │
+              ├────────────────────────────┤
+              │ _id (PK)                   │
+              │ userId (FK)                │
+              │ title                      │
+              │ subject                    │
+              │ content                    │
+              │ createdAt                  │
+              └─────────────┬──────────────┘
+                            │
+             ┌──────────────┼───────────────┐
+             │              │               │
+             │ 1:N          │ 1:N           │ 1:N
+             ▼              ▼               ▼
+    ┌────────────────┐ ┌──────────────┐ ┌────────────────┐
+    │    SUMMARY     │ │  FLASHCARD   │ │      QUIZ      │
+    ├────────────────┤ ├──────────────┤ ├────────────────┤
+    │ _id (PK)       │ │ _id (PK)     │ │ _id (PK)       │
+    │ userId (FK)    │ │ userId (FK)  │ │ userId (FK)    │
+    │ materialId(FK) │ │ materialId   │ │ materialId(FK) │
+    │ summary        │ │ question     │ │ questions      │
+    │ createdAt      │ │ answer       │ │ createdAt      │
+    └────────────────┘ │ createdAt    │ └────────────────┘
+                       └──────────────┘
+
+                            │
+                            │ 1:N
+                            ▼
+                 ┌──────────────────────┐
+                 │     STUDY PLAN       │
+                 ├──────────────────────┤
+                 │ _id (PK)             │
+                 │ userId (FK)          │
+                 │ studyPlan            │
+                 │ examDate             │
+                 │ createdAt            │
+                 └──────────────────────┘
+1. User Schema
+models/User.js
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema(
+    {
+        name: {
+            type: String,
+            required: true,
+            trim: true
+        },
+
+        email: {
+            type: String,
+            required: true,
+            unique: true,
+            lowercase: true,
+            trim: true
+        },
+
+        password: {
+            type: String,
+            required: true
+        },
+
+        role: {
+            type: String,
+            enum: ["Student", "Admin"],
+            default: "Student"
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model("User", userSchema);
+Fields
+Field	Type	Description
+_id	ObjectId	Primary Key
+name	String	User name
+email	String	Unique email
+password	String	Hashed password
+role	String	Student/Admin
+createdAt	Date	Account creation date
+2. Study Material Schema
+models/StudyMaterial.js
+const mongoose = require("mongoose");
+
+const studyMaterialSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+        },
+
+        title: {
+            type: String,
+            required: true,
+            trim: true
+        },
+
+        subject: {
+            type: String,
+            required: true,
+            trim: true
+        },
+
+        content: {
+            type: String,
+            required: true
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "StudyMaterial",
+    studyMaterialSchema
+);
+Relationship
+User (1) ──────────── (N) StudyMaterial
+
+One user can upload multiple study materials.
+
+3. Summary Schema
+models/Summary.js
+const mongoose = require("mongoose");
+
+const summarySchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+        },
+
+        materialId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "StudyMaterial",
+            required: true
+        },
+
+        summary: {
+            type: String,
+            required: true
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "Summary",
+    summarySchema
+);
+Relationship
+User (1) ──────────── (N) Summary
+
+StudyMaterial (1) ─── (N) Summary
+
+The summary stores AI-generated summarized content for a particular study material.
+
+4. Flashcard Schema
+models/Flashcard.js
+const mongoose = require("mongoose");
+
+const flashcardSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+        },
+
+        materialId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "StudyMaterial",
+            required: true
+        },
+
+        question: {
+            type: String,
+            required: true
+        },
+
+        answer: {
+            type: String,
+            required: true
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "Flashcard",
+    flashcardSchema
+);
+Relationship
+User (1) ──────────── (N) Flashcard
+
+StudyMaterial (1) ─── (N) Flashcard
+
+A study material can generate multiple question-answer flashcards.
+
+5. Quiz Schema
+models/Quiz.js
+const mongoose = require("mongoose");
+
+const quizSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+        },
+
+        materialId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "StudyMaterial",
+            required: true
+        },
+
+        questions: [
+            {
+                question: {
+                    type: String,
+                    required: true
+                },
+
+                options: [
+                    {
+                        type: String
+                    }
+                ],
+
+                correctAnswer: {
+                    type: String,
+                    required: true
+                }
+            }
+        ]
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "Quiz",
+    quizSchema
+);
+Example Quiz Data
+{
+    "userId": "64abc123",
+    "materialId": "64xyz456",
+    "questions": [
+        {
+            "question": "What is Artificial Intelligence?",
+            "options": [
+                "A programming language",
+                "A field of computer science",
+                "A database",
+                "An operating system"
+            ],
+            "correctAnswer": "A field of computer science"
+        }
+    ]
+}
+6. Study Plan Schema
+models/StudyPlan.js
+const mongoose = require("mongoose");
+
+const studyPlanSchema = new mongoose.Schema(
+    {
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+        },
+
+        studyPlan: {
+            type: String,
+            required: true
+        },
+
+        examDate: {
+            type: Date,
+            required: true
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "StudyPlan",
+    studyPlanSchema
+);
+Relationship
+User (1) ──────────── (N) StudyPlan
+
+A user can have multiple personalized study plans.
+
+7. Complete Relationship Structure
+                         USER
+                          │
+                          │ 1:N
+                          ▼
+                  STUDY MATERIAL
+                          │
+            ┌─────────────┼─────────────┐
+            │             │             │
+           1:N           1:N           1:N
+            │             │             │
+            ▼             ▼             ▼
+         SUMMARY      FLASHCARD       QUIZ
+
+
+              USER
+               │
+          ┌────┴─────┐
+          │          │
+         1:N        1:N
+          │          │
+          ▼          ▼
+     STUDY PLAN   STUDY MATERIAL
+
+More accurately, the direct foreign-key relationships are:
+
+User
+ │
+ ├───────────────< StudyMaterial
+ │                       │
+ │                       ├────< Summary
+ │                       │
+ │                       ├────< Flashcard
+ │                       │
+ │                       └────< Quiz
+ │
+ └───────────────< StudyPlan
+8. Complete Database Folder Structure
+models/
+│
+├── User.js
+├── StudyMaterial.js
+├── Summary.js
+├── Flashcard.js
+├── Quiz.js
+└── StudyPlan.js
+9. Sample MongoDB Documents
+User
+{
+    "_id": "USER_ID",
+    "name": "Arun",
+    "email": "arun@gmail.com",
+    "password": "$2b$10$hashedpassword",
+    "role": "Student",
+    "createdAt": "2026-09-29"
+}
+Study Material
+{
+    "_id": "MATERIAL_ID",
+    "userId": "USER_ID",
+    "title": "Introduction to AI",
+    "subject": "Artificial Intelligence",
+    "content": "Artificial Intelligence is a branch of computer science...",
+    "createdAt": "2026-09-29"
+}
+Summary
+{
+    "_id": "SUMMARY_ID",
+    "userId": "USER_ID",
+    "materialId": "MATERIAL_ID",
+    "summary": "AI is a field of computer science that focuses on intelligent machines.",
+    "createdAt": "2026-09-29"
+}
+Flashcard
+{
+    "_id": "FLASHCARD_ID",
+    "userId": "USER_ID",
+    "materialId": "MATERIAL_ID",
+    "question": "What is AI?",
+    "answer": "AI is the simulation of human intelligence in machines.",
+    "createdAt": "2026-09-29"
+}
+Quiz
+{
+    "_id": "QUIZ_ID",
+    "userId": "USER_ID",
+    "materialId": "MATERIAL_ID",
+    "questions": [
+        {
+            "question": "What does AI stand for?",
+            "options": [
+                "Artificial Intelligence",
+                "Automated Internet",
+                "Advanced Information",
+                "Artificial Interface"
+            ],
+            "correctAnswer": "Artificial Intelligence"
+        }
+    ],
+    "createdAt": "2026-09-29"
+}
+Study Plan
+{
+    "_id": "PLAN_ID",
+    "userId": "USER_ID",
+    "studyPlan": "Day 1: Study AI fundamentals...",
+    "examDate": "2026-10-15",
+    "createdAt": "2026-09-29"
+}
+10. ER Diagram Description – Report Text
+
+You can directly paste this into your project report:
+
+ER-Diagram Description
+
+The AI StudyBuddy system uses six main entities: User, Study Material, Summary, Flashcard, Quiz, and Study Plan. These entities are represented as separate MongoDB collections and are connected using ObjectId references.
+
+The User entity stores the details of registered students and administrators. Each user is uniquely identified using the _id field. A user can create and manage multiple study materials.
+
+The Study Material entity stores learning content uploaded by users. The userId field establishes a relationship between the study material and its owner. Each study material can be processed by the AI service to generate summaries, flashcards, and quizzes.
+
+The Summary entity stores AI-generated summarized content. It contains both userId and materialId, which identify the user and the source study material.
+
+The Flashcard entity stores AI-generated question-and-answer pairs. Multiple flashcards can be created from a single study material.
+
+The Quiz entity stores AI-generated multiple-choice questions. Each quiz is associated with a specific user and study material. The questions field contains the generated questions, options, and correct answers.
+
+The Study Plan entity stores personalized study schedules generated for users. It contains the study plan details and the user's examination date.
+
+The overall relationship can be represented as one-to-many (1:N) relationships. One user can have multiple study materials, summaries, flashcards, quizzes, and study plans. A study material can also have multiple summaries, flashcards, and quizzes.
+
+11. Short Version for Viva
+
+“Our AI StudyBuddy database contains six main collections: User, StudyMaterial, Summary, Flashcard, Quiz, and StudyPlan. User is the main entity. One user can create multiple study materials. Each study material can generate multiple summaries, flashcards, and quizzes using the AI service. Study plans are associated with users and contain personalized schedules and examination dates. MongoDB ObjectId references are used to establish these relationships.”
