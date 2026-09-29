@@ -1,0 +1,69 @@
+TECHNICAL ARCHITECTURE
+
+The MicroGoal application follows a modular backend architecture designed to provide a secure, reliable, and scalable platform for managing user goals and tasks. The backend uses Node.js and Express.js to handle API requests, MongoDB for data storage, and JWT-based authentication to protect user resources.
+
+Backend
+
+Node.js (Runtime Environment)
+Node.js provides the server-side runtime environment for executing JavaScript code and handling backend operations.
+
+Express.js (Web Framework)
+Express.js is used to build RESTful APIs, manage routes, handle HTTP requests, and implement middleware for authentication and authorization.
+
+Database
+
+MongoDB (NoSQL Database)
+MongoDB stores application data such as user accounts, goals, tasks, and progress information in a flexible document-based format.
+
+Mongoose (ODM for MongoDB)
+Mongoose provides schema definitions, data validation, and simplified interaction between the Node.js application and MongoDB.
+
+Security
+
+JWT (Authentication)
+JSON Web Tokens are used to authenticate users and protect private API endpoints. A valid JWT is required to access user-specific resources.
+
+bcryptjs (Password Hashing)
+bcryptjs is used to securely hash user passwords before storing them in the database.
+
+dotenv (Environment Variables)
+dotenv manages sensitive configuration values such as database connection strings, JWT secrets, and other environment-specific settings.
+
+Testing
+
+Thunder Client
+Thunder Client is used to test and verify REST API endpoints. It helps test HTTP methods such as GET, POST, PUT, and DELETE, along with authentication headers, request data, and API responses.
+
+Architecture Flow
+User / Client
+      |
+      v
+Express.js REST API
+      |
+      v
+Authentication Middleware
+      |
+      v
+Route Controllers
+      |
+      v
+Business Logic
+      |
+      v
+Mongoose ODM
+      |
+      v
+MongoDB Database
+Technology Stack Summary
+Category	Technology	Purpose
+Runtime	Node.js	Server-side execution
+Framework	Express.js	REST API development
+Database	MongoDB	Data storage
+ODM	Mongoose	MongoDB interaction
+Authentication	JWT	User authentication
+Security	bcryptjs	Password hashing
+Configuration	dotenv	Environment variables
+API Testing	Thunder Client	API testing
+Short Version
+
+MicroGoal is developed using Node.js and Express.js for backend API development, MongoDB and Mongoose for database management, JWT and bcryptjs for authentication and password security, and dotenv for environment configuration. Thunder Client is used to test and validate the REST APIs. The modular architecture improves maintainability, security, and scalability of the application.
