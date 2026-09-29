@@ -1,0 +1,501 @@
+AI StudyBuddy – Features
+
+The AI StudyBuddy backend provides secure, intelligent, and personalized learning services through RESTful APIs. The system combines JWT authentication, MongoDB data storage, and Google Gemini AI services to provide automated study assistance.
+
+1. Secure User Authentication
+
+The system provides secure registration and login functionality. User passwords are hashed using bcrypt before being stored in MongoDB. After successful login, the server generates a JWT token. This token is required to access protected study and AI services.
+
+Code – Authentication
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+
+const register = async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+
+        const existingUser = await User.findOne({ email });
+
+        if (existingUser) {
+            return res.status(400).json({
+                message: "User already exists"
+            });
+        }
+
+        const hashedPassword =
+            await bcrypt.hash(password, 10);
+
+        const user = await User.create({
+            name,
+            email,
+            password: hashedPassword,
+            role: "Student"
+        });
+
+        res.status(201).json({
+            message: "Registration successful",
+            userId: user._id
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Registration failed"
+        });
+    }
+};
+Login
+const login = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(401).json({
+                message: "Invalid email or password"
+            });
+        }
+
+        const validPassword =
+            await bcrypt.compare(
+                password,
+                user.password
+            );
+
+        if (!validPassword) {
+            return res.status(401).json({
+                message: "Invalid email or password"
+            });
+        }
+
+        const token = jwt.sign(
+            {
+                userId: user._id,
+                role: user.role
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "1d"
+            }
+        );
+
+        res.json({
+            message: "Login successful",
+            token
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Login failed"
+        });
+    }
+};
+2. JWT Authentication Middleware
+
+JWT middleware protects private APIs from unauthorized access.
+
+middleware/authMiddleware.js
+const jwt = require("jsonwebtoken");
+
+const protect = (req, res, next) => {
+    try {
+        const header = req.headers.authorization;
+
+        if (!header || !header.startsWith("Bearer ")) {
+            return res.status(401).json({
+                message: "Access denied"
+            });
+        }
+
+        const token = header.split(" ")[1];
+
+        const decoded = jwt.verify(
+            token,
+            process.env.JWT_SECRET
+        );
+
+        req.user = decoded;
+
+        next();
+
+    } catch (error) {
+        res.status(401).json({
+            message: "Invalid or expired token"
+        });
+    }
+};
+
+module.exports = protect;
+3. Study Material Management
+
+The Study Material Management feature allows authenticated users to add and retrieve their study content. The content can later be processed by the Gemini AI service to generate summaries, flashcards, quizzes, and study plans.
+
+controllers/studyController.js
+const StudyMaterial =
+    require("../models/StudyMaterial");
+
+const createMaterial = async (req, res) => {
+    try {
+        const {
+            title,
+            subject,
+            content
+        } = req.body;
+
+        const material =
+            await StudyMaterial.create({
+                userId: req.user.userId,
+                title,
+                subject,
+                content
+            });
+
+        res.status(201).json({
+            message: "Study material uploaded",
+            material
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to save material"
+        });
+    }
+};
+
+const getMaterials = async (req, res) => {
+    try {
+        const materials =
+            await StudyMaterial.find({
+                userId: req.user.userId
+            });
+
+        res.json(materials);
+
+    } catch (error) {
+        res.status(500).json({
+            message: "Unable to retrieve materials"
+        });
+    }
+};
+
+module.exports = {
+    createMaterial,
+    getMaterials
+};
+Routes
+const express = require("express");
+const router = express.Router();
+
+const protect =
+    require("../middleware/authMiddleware");
+
+const {
+    createMaterial,
+    getMaterials
+} = require("../controllers/studyController");
+
+router.post("/", protect, createMaterial);
+
+router.get("/", protect, getMaterials);
+
+module.exports = router;
+4. AI Summary Generation
+
+The AI Summary feature sends the uploaded study content to the Google Gemini API. Gemini processes the content and generates a concise summary that is easier for students to understand and revise.
+
+services/geminiService.js
+const {
+    GoogleGenerativeAI
+} = require("@google/generative-ai");
+
+const genAI =
+    new GoogleGenerativeAI(
+        process.env.GEMINI_API_KEY
+    );
+
+const model =
+    genAI.getGenerativeModel({
+        model: "gemini-1.5-flash"
+    });
+
+const generateSummary = async (content) => {
+
+    const prompt = `
+    Create a simple and concise summary
+    of the following study material.
+
+    Use clear language and include
+    the important concepts.
+
+    Study Material:
+    ${content}
+    `;
+
+    const result =
+        await model.generateContent(prompt);
+
+    const response =
+        await result.response;
+
+    return response.text();
+};
+
+module.exports = {
+    generateSummary
+};
+API
+GET /api/ai/summary/:materialId
+5. AI Flashcard Generation
+
+The Flashcard feature automatically generates question-and-answer pairs from study materials. These flashcards support revision and active recall.
+
+Code
+const generateFlashcards = async (content) => {
+
+    const prompt = `
+    Create 5 flashcards from the
+    following study material.
+
+    Format each flashcard as:
+
+    Question:
+    Answer:
+
+    Study Material:
+    ${content}
+    `;
+
+    const result =
+        await model.generateContent(prompt);
+
+    const response =
+        await result.response;
+
+    return response.text();
+};
+API
+GET /api/ai/flashcards/:materialId
+6. AI Quiz Generation
+
+The Quiz Generation feature creates multiple-choice questions from the uploaded study material. It helps students evaluate their understanding of the topics they have studied.
+
+Code
+const generateQuiz = async (content) => {
+
+    const prompt = `
+    Generate 5 multiple-choice questions
+    from the following study material.
+
+    Each question should contain:
+    1. Question
+    2. Four options
+    3. Correct answer
+
+    Study Material:
+    ${content}
+    `;
+
+    const result =
+        await model.generateContent(prompt);
+
+    const response =
+        await result.response;
+
+    return response.text();
+};
+API
+GET /api/ai/quiz/:materialId
+7. AI Study Plan Generation
+
+The Study Plan feature generates a personalized study schedule based on the user's study material and examination date. The AI organizes the topics into manageable study sessions.
+
+Code
+const generateStudyPlan = async (
+    content,
+    examDate
+) => {
+
+    const prompt = `
+    Create a personalized study plan
+    for the following study material.
+
+    Exam Date:
+    ${examDate}
+
+    Divide the topics into manageable
+    study sessions and include revision.
+
+    Study Material:
+    ${content}
+    `;
+
+    const result =
+        await model.generateContent(prompt);
+
+    const response =
+        await result.response;
+
+    return response.text();
+};
+API
+GET /api/ai/study-plan/:materialId
+8. Role-Based Access Control (RBAC)
+
+The system supports two roles:
+
+Student
+Admin
+
+Students can access their own study materials and AI-generated learning resources. Administrators can perform administrative operations such as managing users and monitoring system resources.
+
+RBAC Middleware
+middleware/roleMiddleware.js
+const allowRoles = (...roles) => {
+
+    return (req, res, next) => {
+
+        if (!req.user) {
+            return res.status(401).json({
+                message: "Authentication required"
+            });
+        }
+
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({
+                message: "Access forbidden"
+            });
+        }
+
+        next();
+    };
+};
+
+module.exports = allowRoles;
+Example
+const protect =
+    require("../middleware/authMiddleware");
+
+const allowRoles =
+    require("../middleware/roleMiddleware");
+
+router.delete(
+    "/users/:id",
+    protect,
+    allowRoles("Admin"),
+    deleteUser
+);
+
+இதன் மூலம் Admin-only API-க்கு Student access செய்ய முடியாது.
+
+9. MongoDB Data Storage
+
+MongoDB is used as the primary database for the AI StudyBuddy application. Mongoose provides schema-based interaction with MongoDB.
+
+The following collections are maintained:
+
+MongoDB
+   |
+   ├── users
+   |
+   ├── studymaterials
+   |
+   ├── summaries
+   |
+   ├── flashcards
+   |
+   ├── quizzes
+   |
+   └── studyplans
+Database Connection
+const mongoose = require("mongoose");
+
+const connectDB = async () => {
+
+    try {
+
+        await mongoose.connect(
+            process.env.MONGO_URI
+        );
+
+        console.log(
+            "MongoDB connected successfully"
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Database connection failed",
+            error.message
+        );
+
+        process.exit(1);
+    }
+};
+
+module.exports = connectDB;
+10. Complete Feature Flow
+                    Student
+                       |
+                       v
+                 React Frontend
+                       |
+                       v
+                Express REST API
+                       |
+                       v
+                JWT Authentication
+                       |
+          ┌────────────┼─────────────┐
+          |            |             |
+          v            v             v
+      Materials     AI Service      User
+          |            |
+          |            v
+          |       Gemini API
+          |            |
+          |    ┌───────┼────────┐
+          |    |       |        |
+          |    v       v        v
+          | Summary  Quiz   Flashcards
+          |                     |
+          |                  Study Plan
+          |                     |
+          └──────────┬──────────┘
+                     v
+                  MongoDB
+11. Feature Summary Table
+Feature	Technology	Purpose
+Secure Authentication	JWT + bcrypt	Secure user login
+Study Material Management	Express + MongoDB	Store learning content
+AI Summary	Gemini API	Generate concise summaries
+AI Flashcards	Gemini API	Generate revision cards
+AI Quiz	Gemini API	Generate MCQ questions
+AI Study Plan	Gemini API	Create personalized schedules
+RBAC	JWT Middleware	Student/Admin authorization
+Data Storage	MongoDB + Mongoose	Store application data
+12. Report Text – FEATURES
+
+You can directly paste this in your project report:
+
+FEATURES
+
+The AI StudyBuddy backend provides a collection of intelligent learning features through secure RESTful APIs. The system is designed to help students organize their study materials and automatically generate useful learning resources using artificial intelligence.
+
+Secure User Authentication: The system provides secure user registration and login using JWT-based authentication. Passwords are hashed using bcrypt before being stored in the database. Protected APIs require a valid JWT token.
+
+Study Material Management: Authenticated users can upload and manage their study materials. Each material is associated with its respective user and can be used as input for AI-powered learning features.
+
+AI Summary Generation: The system uses the Google Gemini API to analyze uploaded study content and generate concise summaries containing the important concepts.
+
+AI Flashcard Generation: The system automatically generates question-and-answer flashcards from study materials. These flashcards help students revise important concepts and practice active recall.
+
+AI Quiz Generation: The quiz module generates multiple-choice questions based on the uploaded study content. It provides students with an interactive way to test their understanding.
+
+AI Study Plan Generation: The system generates personalized study plans based on study content and examination dates. The generated plan organizes topics into manageable study sessions.
+
+Role-Based Access Control: The application supports Student and Admin roles. JWT-based authorization ensures that users can access only the operations permitted for their respective roles.
+
+MongoDB Data Storage: MongoDB is used to store user accounts, study materials, summaries, flashcards, quizzes, and study plans. Mongoose is used to define schemas and interact with the MongoDB database.
+
+Overall, these features combine secure authentication, database management, REST APIs, and generative AI to provide an intelligent and personalized learning platform.
