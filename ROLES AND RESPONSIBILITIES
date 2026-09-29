@@ -1,0 +1,606 @@
+ROLES AND RESPONSIBILITIES
+
+The AI StudyBuddy application defines two primary roles: Student and Administrator. Role-based access control is implemented using JWT authentication and authorization middleware. Each role is provided with specific permissions according to its responsibilities.
+
+1. Student
+
+Students are the primary users of the AI StudyBuddy application. They can create an account, securely log in, upload study materials, and use AI-powered learning services.
+
+Student Responsibilities
+
+Students can:
+
+Register a new account.
+Log in securely using email and password.
+View and update their profile.
+Upload study materials.
+View their uploaded materials.
+Generate AI summaries.
+Generate AI flashcards.
+Generate AI quizzes.
+Generate personalized study plans.
+View previously generated learning resources.
+Delete or manage their own study materials.
+Access only their own private resources.
+Student API Routes
+POST   /api/auth/register
+POST   /api/auth/login
+
+GET    /api/study
+POST   /api/study
+DELETE /api/study/:id
+
+GET    /api/ai/summary/:id
+GET    /api/ai/flashcards/:id
+GET    /api/ai/quiz/:id
+GET    /api/ai/study-plan/:id
+2. Administrator
+
+Administrators are responsible for managing the overall application. They have additional privileges that are not available to regular students.
+
+Administrator Responsibilities
+
+Administrators can:
+
+View registered users.
+View user information.
+Manage user accounts.
+Delete or deactivate inappropriate accounts.
+Monitor uploaded study materials when required for system administration.
+Monitor application usage.
+Maintain system integrity.
+Handle user-related issues.
+Perform system-level management operations.
+Admin API Routes
+GET    /api/admin/users
+GET    /api/admin/users/:id
+DELETE /api/admin/users/:id
+3. User Model with Roles
+models/User.js
+const mongoose = require("mongoose");
+
+const userSchema = new mongoose.Schema(
+    {
+        name: {
+            type: String,
+            required: true,
+            trim: true
+        },
+
+        email: {
+            type: String,
+            required: true,
+            unique: true,
+            lowercase: true,
+            trim: true
+        },
+
+        password: {
+            type: String,
+            required: true
+        },
+
+        role: {
+            type: String,
+            enum: ["Student", "Admin"],
+            default: "Student"
+        }
+    },
+    {
+        timestamps: true
+    }
+);
+
+module.exports = mongoose.model(
+    "User",
+    userSchema
+);
+
+The role field determines whether the user is a Student or Admin.
+
+4. JWT Authentication
+
+After successful login, the server creates a JWT containing the user's ID and role.
+
+Login Code
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const User = require("../models/User");
+
+const login = async (req, res) => {
+
+    try {
+
+        const { email, password } = req.body;
+
+        const user = await User.findOne({
+            email
+        });
+
+        if (!user) {
+            return res.status(401).json({
+                message: "Invalid email or password"
+            });
+        }
+
+        const isValid =
+            await bcrypt.compare(
+                password,
+                user.password
+            );
+
+        if (!isValid) {
+            return res.status(401).json({
+                message: "Invalid email or password"
+            });
+        }
+
+        const token = jwt.sign(
+            {
+                userId: user._id,
+                role: user.role
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "1d"
+            }
+        );
+
+        res.json({
+            message: "Login successful",
+            token,
+            role: user.role
+        });
+
+    } catch (error) {
+
+        res.status(500).json({
+            message: "Login failed"
+        });
+    }
+};
+
+module.exports = {
+    login
+};
+5. Authentication Middleware
+
+The authentication middleware verifies whether the user has a valid JWT.
+
+middleware/authMiddleware.js
+const jwt = require("jsonwebtoken");
+
+const protect = (req, res, next) => {
+
+    try {
+
+        const authHeader =
+            req.headers.authorization;
+
+        if (
+            !authHeader ||
+            !authHeader.startsWith("Bearer ")
+        ) {
+            return res.status(401).json({
+                message: "Authentication required"
+            });
+        }
+
+        const token =
+            authHeader.split(" ")[1];
+
+        const decoded =
+            jwt.verify(
+                token,
+                process.env.JWT_SECRET
+            );
+
+        req.user = decoded;
+
+        next();
+
+    } catch (error) {
+
+        return res.status(401).json({
+            message: "Invalid or expired token"
+        });
+    }
+};
+
+module.exports = protect;
+6. Role-Based Authorization
+
+Authentication verifies who the user is. Authorization verifies what the user is allowed to do.
+
+middleware/roleMiddleware.js
+const allowRoles = (...roles) => {
+
+    return (req, res, next) => {
+
+        if (!req.user) {
+            return res.status(401).json({
+                message: "Authentication required"
+            });
+        }
+
+        if (!roles.includes(req.user.role)) {
+            return res.status(403).json({
+                message: "Access denied"
+            });
+        }
+
+        next();
+    };
+};
+
+module.exports = allowRoles;
+7. Student-Only Route
+
+If a particular operation should be available only to students:
+
+const express = require("express");
+
+const protect =
+    require("../middleware/authMiddleware");
+
+const allowRoles =
+    require("../middleware/roleMiddleware");
+
+const router = express.Router();
+
+router.get(
+    "/student-dashboard",
+    protect,
+    allowRoles("Student"),
+    (req, res) => {
+
+        res.json({
+            message: "Welcome to Student Dashboard"
+        });
+    }
+);
+
+module.exports = router;
+8. Admin Controller
+controllers/adminController.js
+const User = require("../models/User");
+
+const getUsers = async (req, res) => {
+
+    try {
+
+        const users = await User.find()
+            .select("-password");
+
+        res.json({
+            count: users.length,
+            users
+        });
+
+    } catch (error) {
+
+        res.status(500).json({
+            message: "Unable to retrieve users"
+        });
+    }
+};
+
+const getUser = async (req, res) => {
+
+    try {
+
+        const user = await User.findById(
+            req.params.id
+        ).select("-password");
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        res.json(user);
+
+    } catch (error) {
+
+        res.status(500).json({
+            message: "Unable to retrieve user"
+        });
+    }
+};
+
+const deleteUser = async (req, res) => {
+
+    try {
+
+        const user =
+            await User.findByIdAndDelete(
+                req.params.id
+            );
+
+        if (!user) {
+            return res.status(404).json({
+                message: "User not found"
+            });
+        }
+
+        res.json({
+            message: "User deleted successfully"
+        });
+
+    } catch (error) {
+
+        res.status(500).json({
+            message: "Unable to delete user"
+        });
+    }
+};
+
+module.exports = {
+    getUsers,
+    getUser,
+    deleteUser
+};
+9. Admin Routes
+routes/adminRoutes.js
+const express = require("express");
+
+const protect =
+    require("../middleware/authMiddleware");
+
+const allowRoles =
+    require("../middleware/roleMiddleware");
+
+const {
+    getUsers,
+    getUser,
+    deleteUser
+} = require("../controllers/adminController");
+
+const router = express.Router();
+
+router.get(
+    "/users",
+    protect,
+    allowRoles("Admin"),
+    getUsers
+);
+
+router.get(
+    "/users/:id",
+    protect,
+    allowRoles("Admin"),
+    getUser
+);
+
+router.delete(
+    "/users/:id",
+    protect,
+    allowRoles("Admin"),
+    deleteUser
+);
+
+module.exports = router;
+10. Add Admin Routes to Server
+server.js
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+
+const connectDB = require("./config/db");
+
+dotenv.config();
+
+connectDB();
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+app.use(
+    "/api/auth",
+    require("./routes/authRoutes")
+);
+
+app.use(
+    "/api/study",
+    require("./routes/studyRoutes")
+);
+
+app.use(
+    "/api/ai",
+    require("./routes/aiRoutes")
+);
+
+app.use(
+    "/api/admin",
+    require("./routes/adminRoutes")
+);
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+    console.log(
+        `Server running on port ${PORT}`
+    );
+});
+11. Complete User Flow
+
+The AI StudyBuddy user flow starts with authentication and continues through study material management and AI-powered resource generation.
+
+                 START
+                   |
+                   v
+            Open Application
+                   |
+                   v
+          ┌─────────────────┐
+          │ Existing User?  │
+          └───────┬─────────┘
+              Yes │     │ No
+                  │     │
+                  v     v
+                Login  Register
+                  │     │
+                  └──┬──┘
+                     |
+                     v
+              JWT Authentication
+                     |
+                     v
+                  Verify
+                  Token
+                     |
+             ┌───────┴────────┐
+             |                |
+             v                v
+          Student           Admin
+             |                |
+             v                v
+       Student Dashboard  Admin Dashboard
+             |
+             v
+      Upload Study Material
+             |
+             v
+       Store in MongoDB
+             |
+             v
+       Select AI Feature
+             |
+       ┌─────┼─────┬──────────┐
+       |     |     |          |
+       v     v     v          v
+    Summary Quiz Flashcards Study Plan
+       |     |     |          |
+       └─────┴─────┴──────────┘
+             |
+             v
+        Gemini API
+             |
+             v
+      Generated Resource
+             |
+             v
+        Save to MongoDB
+             |
+             v
+       Display to Student
+             |
+             v
+      View / Manage Later
+             |
+             v
+            END
+12. Detailed AI User Flow
+
+For example, when a student requests a summary:
+
+Student
+   |
+   | Click "Generate Summary"
+   v
+React Frontend
+   |
+   | GET /api/ai/summary/:id
+   | Authorization: Bearer JWT
+   v
+Express Server
+   |
+   v
+JWT Middleware
+   |
+   | Verify Token
+   v
+AI Controller
+   |
+   v
+MongoDB
+   |
+   | Retrieve Study Material
+   v
+Gemini Service
+   |
+   v
+Google Gemini API
+   |
+   | Generated Summary
+   v
+AI Controller
+   |
+   v
+MongoDB
+   |
+   | Save Summary
+   v
+JSON Response
+   |
+   v
+React Dashboard
+   |
+   v
+Student Views Summary
+13. Student vs Administrator
+Function	Student	Admin
+Register	✓	✓
+Login	✓	✓
+Manage Profile	✓	✓
+Upload Study Material	✓	Optional
+Generate Summary	✓	Optional
+Generate Flashcards	✓	Optional
+Generate Quiz	✓	Optional
+Generate Study Plan	✓	Optional
+View Own Resources	✓	✓
+View All Users	✗	✓
+Manage Users	✗	✓
+Delete User Accounts	✗	✓
+System Management	✗	✓
+14. Report Text – ROLES AND RESPONSIBILITIES
+
+You can directly paste the following into your project report:
+
+ROLES AND RESPONSIBILITIES
+
+The AI StudyBuddy application implements role-based access control to provide different privileges for Students and Administrators. JWT authentication is used to identify authenticated users, while role-based authorization controls access to specific system operations.
+
+Student
+
+Students are the primary users of the AI StudyBuddy application. They can register and securely log in to the system. After authentication, students can upload and manage their study materials and use AI-powered services to generate summaries, flashcards, quizzes, and personalized study plans. Students can view their previously generated resources and manage their learning content through the dashboard. Access to study resources is restricted to the authenticated user's data.
+
+Administrator
+
+Administrators are responsible for managing the overall application. They can view and manage registered users, monitor application usage, and perform system-level management operations. Administrative APIs are protected using JWT authentication and role-based authorization so that only users with the Administrator role can access them.
+
+User Flow
+
+The AI StudyBuddy application begins with user registration or login. During login, the server verifies the user's credentials and generates a JWT containing the user's identity and role. The token is used for subsequent protected API requests.
+
+After successful authentication, the user is directed to the appropriate dashboard based on their role. Students can upload study materials and select AI-powered features such as summary generation, flashcard generation, quiz generation, and personalized study-plan generation.
+
+The selected study content is retrieved from MongoDB and sent to the AI service layer. The AI service communicates with the Google Gemini API and receives the generated learning resource. The generated resource is returned to the backend, stored in MongoDB when required, and displayed on the student's dashboard.
+
+Administrators are provided with a separate management interface through which they can manage users and perform system-level operations. This role-based flow ensures that users can access only the features and resources permitted by their assigned roles.
+
+Overall Flow
+Register / Login
+       ↓
+JWT Authentication
+       ↓
+Role Verification
+       ↓
+Dashboard
+       ↓
+Upload Study Material
+       ↓
+Choose AI Feature
+       ↓
+Gemini AI Processing
+       ↓
+Generate Learning Resource
+       ↓
+Save in MongoDB
+       ↓
+Display Resource
+       ↓
+View / Manage Resources
